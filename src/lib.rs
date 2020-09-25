@@ -3,7 +3,6 @@ mod tests;
 use rand::Rng;
 
 use num_bigint_dig::traits::ModInverse;
-use num_bigint_dig::BigUint as NumBigUint;
 
 use rsa::{BigUint, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 
@@ -13,6 +12,69 @@ pub fn generate_random_ubigint(size: usize) -> BigUint {
     let size = size / 32;
     let random_bytes: Vec<u32> = (0..size).map(|_| rand::random::<u32>()).collect();
     return BigUint::new(random_bytes);
+}
+
+pub fn mod_inverse(g: &BigUint, n: &BigUint) -> BigUint {
+    use num_bigint_dig::BigUint as NumBigUint;
+
+    let g = g.to_bytes_le();
+    let g = NumBigUint::from_bytes_le(&g);
+
+    let n = n.to_bytes_le();
+    let n = NumBigUint::from_bytes_le(&n);
+
+    let i = g
+        .clone()
+        .mod_inverse(&n)
+        .expect("failed to calc inverse")
+        .to_biguint()
+        .unwrap();
+
+    let i = i.to_bytes_le();
+    BigUint::from_bytes_le(&i)
+}
+
+pub struct Share {
+    share: Vec<u8>,
+    pubkey: RSAPublicKey,
+}
+
+pub struct ShareSet {
+    shares: Vec<Share>,
+}
+
+impl ShareSet {
+    pub fn new(shares: Vec<Share>) -> Self {
+        Self { shares: shares }
+    }
+
+    pub fn decrypt(&self) -> Vec<u8> {
+        let mut m = BigUint::from(0 as u64);
+
+        let mut n = BigUint::from(1 as u64);
+        for s in &self.shares {
+            n *= s.pubkey.n()
+        }
+
+        for (i, si) in self.shares.iter().enumerate() {
+            for (j, sj) in self.shares.iter().enumerate() {
+                if i == j {
+                    continue;
+                };
+
+                let c = BigUint::from_bytes_le(&si.share);
+                let n1 = si.pubkey.n();
+                let n2 = sj.pubkey.n();
+
+                let i = mod_inverse(n2, n1);
+   
+                m += c * n2 * i % n.clone();
+            }
+        }
+
+        m = m % n;
+        m.to_bytes_le()
+    }
 }
 
 pub struct ThresholdPrivateKey {
@@ -39,6 +101,16 @@ impl ThresholdPrivateKey {
     pub fn new(key: RSAPrivateKey) -> Self {
         Self { key: key }
     }
+
+    pub fn calc_share(&self, cipher: &Cipher, pubkey: &RSAPublicKey) -> Share {
+        let c = BigUint::from_bytes_le(&cipher.cipher);
+        let p = c.modpow(self.key.d(), self.key.n());
+
+        Share {
+            share: p.to_bytes_le(),
+            pubkey: pubkey.clone(),
+        }
+    }
 }
 
 pub struct Encryptor {
@@ -50,6 +122,11 @@ pub struct Encryptor {
 pub struct Cipher {
     pub cipher: Vec<u8>,
     pub threshold: usize,
+}
+
+pub struct Decryptor {
+    pub cipher: Cipher,
+    pub shares: ShareSet,
 }
 
 impl Encryptor {
@@ -128,19 +205,8 @@ impl Encryptor {
             }
 
             // calc Nj, Zj, Yj
-            let Nj = pubkey.n().to_bytes_le();
-            let Nj = NumBigUint::from_bytes_le(&Nj);
-
-            let Zj = Zj.to_bytes_le();
-            let Zj = NumBigUint::from_bytes_le(&Zj);
-
-            let Yj = Zj.clone().mod_inverse(&Nj).unwrap().to_biguint().unwrap();
-
-            let Zj = Zj.to_bytes_le();
-            let Zj = BigUint::from_bytes_le(&Zj);
-
-            let Yj = Yj.to_bytes_le();
-            let Yj = BigUint::from_bytes_le(&Yj);
+            let Nj = pubkey.n();
+            let Yj = mod_inverse(&Zj, &Nj);
 
             C += (c * Zj * Yj) % N.clone();
         }
