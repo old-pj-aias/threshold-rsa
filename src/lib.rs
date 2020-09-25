@@ -1,7 +1,12 @@
 use rand::rngs::OsRng;
 use rand::Rng;
 
+use num_bigint_dig::traits::ModInverse;
+use num_bigint_dig::BigUint as NumBigUint;
+
 use rsa::{BigUint, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
+
+use std::borrow::Cow;
 
 static SECURITY_PARAM: u32 = 10;
 
@@ -37,11 +42,12 @@ impl ThresholdPrivateKey {
     }
 }
 
-pub fn prepare_message(msg: &[u8], threshold: usize, pubkeyset: ThresholdPublicKeySet) -> Vec<u8> {
+
+pub fn prepare_message(msg: &[u8], threshold: usize, pubkeyset: &ThresholdPublicKeySet) -> Vec<u8> {
     let mut rng = rand::thread_rng();
 
     let mut l1 = BigUint::from(1 as u32);
-    let mut l2 = BigUint::from(1 as u32);
+    // let mut l2 = BigUint::from(1 as u32);
 
     let n = pubkeyset.keys.len();
     let i = n - threshold + 2;
@@ -73,6 +79,62 @@ pub fn prepare_message(msg: &[u8], threshold: usize, pubkeyset: ThresholdPublicK
 
     // return result
     [random_field, msg.to_vec(), size_field].concat()
+}
+
+fn encrypt(msg: &[u8], pubkeyset: &ThresholdPublicKeySet) -> BigUint {
+    let msg = BigUint::from_bytes_le(msg);
+
+    let n = pubkeyset.keys.len();
+
+    // calc N
+    let mut N = BigUint::from(1 as u64);
+    for key in &pubkeyset.keys {
+        N *= key.n();
+
+    }
+
+    let mut C = BigUint::from(1 as u32);
+
+    // calc C
+    for j in 1..pubkeyset.keys.len() + 1 {
+        let pubkey = &pubkeyset.keys[j - 1];
+
+        let c = msg.modpow(pubkey.e(), pubkey.n());
+
+        // calc Zj
+        let mut Zj = BigUint::from(1 as u32);
+
+        println!("j={}", j);
+        for (i, key) in pubkeyset.keys.iter().enumerate() {
+            if i != j  - 1 {
+                Zj *= key.n();
+            }
+        }
+
+        // calc Nj, Zj, Yj
+        let Nj = pubkey.n().to_bytes_le();
+        let Nj = NumBigUint::from_bytes_le(&Nj);
+
+        let Zj = Zj.to_bytes_le();
+        let Zj = NumBigUint::from_bytes_le(&Zj);
+
+        let Yj = Zj
+            .clone()
+            .mod_inverse(&Nj)
+            .unwrap()
+            .to_biguint()
+            .unwrap();
+
+        let Zj = Zj.to_bytes_le();
+        let Zj = BigUint::from_bytes_le(&Zj);
+
+        let Yj = Yj.to_bytes_le();
+        let Yj = BigUint::from_bytes_le(&Yj);
+
+        C += (c * Zj * Yj) % N.clone();
+    }
+
+    C
 }
 
 #[test]
@@ -108,7 +170,30 @@ fn test_prepare_msg() {
     let pubkey = RSAPublicKey::from(&privkey);
     pubkeys.add(pubkey);
 
-    let msg = prepare_message(b"abc", 2, pubkeys);
+    let msg = prepare_message(b"abc", 2, &pubkeys);
 
     println!("{:?}", msg);
+}
+
+#[test]
+fn test_prepare_encrypt() {
+    let mut rng = OsRng;
+    let bits = 2048;
+
+    let mut pubkeys = ThresholdPublicKeySet::new();
+
+    let pubkey = RSAPublicKey::new(BigUint::from(3841 as u32), BigUint::from(17 as u32)).unwrap();
+    pubkeys.add(pubkey);
+
+    let pubkey = RSAPublicKey::new(BigUint::from(4897 as u32), BigUint::from(11 as u32)).unwrap();
+    pubkeys.add(pubkey);
+
+    let pubkey = RSAPublicKey::new(BigUint::from(5029 as u32), BigUint::from(13 as u32)).unwrap();
+    pubkeys.add(pubkey);
+
+    let msg = BigUint::from(452009 as u64).to_bytes_le();
+    println!("{:?}", msg);
+
+    let e = encrypt(&msg, &pubkeys);
+    println!("{:?}", e);
 }
