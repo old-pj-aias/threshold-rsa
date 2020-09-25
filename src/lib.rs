@@ -45,12 +45,12 @@ impl ThresholdPrivateKey {
 pub struct Encryptor {
     pub msg: Option<Vec<u8>>,
     pub threshold: usize,
-    pub pubkeyset: ThresholdPublicKeySet
+    pub pubkeyset: ThresholdPublicKeySet,
 }
 
 pub struct Cipher {
     pub cipher: Vec<u8>,
-    pub threshold: usize
+    pub threshold: usize,
 }
 
 impl Encryptor {
@@ -58,7 +58,7 @@ impl Encryptor {
         Self {
             msg: None,
             threshold: threshold,
-            pubkeyset: pubkeyset
+            pubkeyset: pubkeyset,
         }
     }
 
@@ -111,7 +111,7 @@ impl Encryptor {
             N *= key.n();
         }
 
-        let mut C = BigUint::from(1 as u32);
+        let mut C = BigUint::from(0 as u32);
 
         // calc C
         for j in 1..self.pubkeyset.keys.len() + 1 {
@@ -123,7 +123,7 @@ impl Encryptor {
             let mut Zj = BigUint::from(1 as u32);
 
             for (i, key) in self.pubkeyset.keys.iter().enumerate() {
-                if i != j  - 1 {
+                if i != j - 1 {
                     Zj *= key.n();
                 }
             }
@@ -135,12 +135,7 @@ impl Encryptor {
             let Zj = Zj.to_bytes_le();
             let Zj = NumBigUint::from_bytes_le(&Zj);
 
-            let Yj = Zj
-                .clone()
-                .mod_inverse(&Nj)
-                .unwrap()
-                .to_biguint()
-                .unwrap();
+            let Yj = Zj.clone().mod_inverse(&Nj).unwrap().to_biguint().unwrap();
 
             let Zj = Zj.to_bytes_le();
             let Zj = BigUint::from_bytes_le(&Zj);
@@ -155,7 +150,7 @@ impl Encryptor {
 
         Cipher {
             cipher: C,
-            threshold: self.threshold
+            threshold: self.threshold,
         }
     }
 }
@@ -227,6 +222,6 @@ fn test_prepare_encrypt() {
     let c = BigUint::from_bytes_le(&c.cipher);
 
     // todo: fix
-    let expect = BigUint::from(79682507304 as u64);
+    let expect = BigUint::from(79682507303 as u64);
     assert_eq!(c, expect);
 }
