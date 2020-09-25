@@ -1,38 +1,10 @@
 mod tests;
+mod utils;
 
 use rand::Rng;
-
-use num_bigint_dig::traits::ModInverse;
-
 use rsa::{BigUint, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 
 static SECURITY_PARAM: u32 = 10;
-
-pub fn generate_random_ubigint(size: usize) -> BigUint {
-    let size = size / 32;
-    let random_bytes: Vec<u32> = (0..size).map(|_| rand::random::<u32>()).collect();
-    return BigUint::new(random_bytes);
-}
-
-pub fn mod_inverse(g: &BigUint, n: &BigUint) -> BigUint {
-    use num_bigint_dig::BigUint as NumBigUint;
-
-    let g = g.to_bytes_le();
-    let g = NumBigUint::from_bytes_le(&g);
-
-    let n = n.to_bytes_le();
-    let n = NumBigUint::from_bytes_le(&n);
-
-    let i = g
-        .clone()
-        .mod_inverse(&n)
-        .expect("failed to calc inverse")
-        .to_biguint()
-        .unwrap();
-
-    let i = i.to_bytes_le();
-    BigUint::from_bytes_le(&i)
-}
 
 pub struct Share {
     share: Vec<u8>,
@@ -66,8 +38,8 @@ impl ShareSet {
                 let n1 = si.pubkey.n();
                 let n2 = sj.pubkey.n();
 
-                let i = mod_inverse(n2, n1);
-   
+                let i = utils::mod_inverse(n2, n1);
+
                 m += c * n2 * i % n.clone();
             }
         }
@@ -163,7 +135,7 @@ impl Encryptor {
         // calc random bits
         // todo!("We can't say that random field size is random_field_len.");
         let random_field_len = l - SECURITY_PARAM - log_l1_plus_k;
-        let random_field = generate_random_ubigint(random_field_len as usize).to_bytes_be();
+        let random_field = utils::generate_random_ubigint(random_field_len as usize).to_bytes_be();
 
         // calc size field
         let mut size_field = vec![0; log_l1_plus_k as usize];
@@ -206,7 +178,7 @@ impl Encryptor {
 
             // calc Nj, Zj, Yj
             let Nj = pubkey.n();
-            let Yj = mod_inverse(&Zj, &Nj);
+            let Yj = utils::mod_inverse(&Zj, &Nj);
 
             C += (c * Zj * Yj) % N.clone();
         }
